@@ -30,8 +30,8 @@ type PodParser interface {
 	FindPodcastURLs(doc *goquery.Document) []Episode
 }
 
-type FFPod string
-func (p FFPod) FindPodcastURLs(doc *goquery.Document) []Episode { 
+type AcastPod string
+func (p AcastPod) FindPodcastURLs(doc *goquery.Document) []Episode { 
 	js := doc.Find("script").Eq(0).Text()
 	i := strings.Index(js, "{\"G")
 	j := strings.Index(js, "};") + 1
@@ -70,7 +70,7 @@ func (p FFPod) FindPodcastURLs(doc *goquery.Document) []Episode {
 	return nil
 }
 
-func (p FFPod) parseSpecificPage(url string) string {
+func (p AcastPod) parseSpecificPage(url string) string {
 	r, _ := regexp.Compile("https://.*\\.mp3") // this will either work or not. don't check error
 	
 	page, err := http.Get(url)
@@ -141,7 +141,7 @@ func sched() {
 
 func main() {
 	flag.Parse()
-	parser := FFPod("Filip & Fredrik")
+	parser := AcastPod("Filip & Fredrik")
 	podcast := &Pod {
 		url: "https://www.acast.com/filipandfredrik/",
 		lastUpdate: time.Now(),
