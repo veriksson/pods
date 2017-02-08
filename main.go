@@ -12,8 +12,28 @@ import "time"
 import "html/template"
 import "sort"
 import "flag"
+import "encoding/xml"
 
 var Port = flag.String("port", ":6363", "port to listen to :XXXX")
+
+type RssFeed struct {
+	XMLName	xml.Name	`xml:"rss"`
+	Channel	RssChannel	`xml:"channel"`
+}
+
+type RssChannel struct {
+	Title	string		`xml:"title"`
+	Items	[]RssItem	`xml:"item"`
+}
+
+type RssItem struct {
+	Title		string		`xml:"title"`
+	Enclosure	RssEnclosure	`xml:"enclosure"`
+}
+
+type RssEnclosure struct {
+	Url	string	`xml:"url,attr"`
+}
 
 type byEpisodeName []Episode
 
@@ -27,21 +47,60 @@ type Episode struct {
 }
 
 type PodParser interface {
-	FindPodcastURLs(doc *goquery.Document) []Episode
+	FindPodcastURLs(url string) []Episode
+}
+
+type RssPod string
+func (p RssPod) FindPodcastURLs(url string) []Episode {
+	res, err := http.Get(url)
+	if err != nil {
+		fmt.Println(err.Error())
+		return nil
+	}	
+	defer res.Body.Close()
+
+	bs, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		fmt.Println(err.Error())
+		return nil
+	}
+
+	rss := RssFeed{}
+	err = xml.Unmarshal(bs, &rss)
+	if err != nil {
+		fmt.Println(err.Error())
+		return nil
+	}
+
+	l := len(rss.Channel.Items)
+	if l > 10 {
+		l = 10
+	}
+	eps := make([]Episode, l)
+	for i := 0; i < len(eps); i++ {
+		eps[i] = Episode { rss.Channel.Items[i].Title, rss.Channel.Items[i].Enclosure.Url } 
+	}
+	return eps
 }
 
 type AcastPod string
-func (p AcastPod) FindPodcastURLs(doc *goquery.Document) []Episode { 
+func (p AcastPod) FindPodcastURLs(url string) []Episode { 
+	doc, err := goquery.NewDocument(url)
+	if err != nil {
+		fmt.Println(err.Error())
+		return nil
+	}
 	js := doc.Find("script").Eq(0).Text()
 	i := strings.Index(js, "{\"G")
 	j := strings.Index(js, "};") + 1
 	jsonData := []byte(js[i:j])
 	var m map[string]interface{}
-	err := json.Unmarshal(jsonData, &m)
+	err = json.Unmarshal(jsonData, &m)
 	if err != nil {
 		fmt.Println(err.Error())
 		return nil
 	}
+	//TODO(v): fix json map to be more general
 	if casts, ok := m["GetAcastsByChannel#filipandfredrik#0"]; ok {
 		var wg sync.WaitGroup
 		var episodes []Episode
@@ -102,13 +161,7 @@ func (p *Pod) getPodcastArchive() (*goquery.Document, error) {
 }
 
 func (p *Pod) Do() {
-	d, err := p.getPodcastArchive()
-	if err != nil {
-		fmt.Println(err.Error())
-		return	
-	}
-
-	eps := p.parser.FindPodcastURLs(d)
+	eps := p.parser.FindPodcastURLs(p.url)
 
 	p.lastUpdate = time.Now()
 	sort.Sort(sort.Reverse(byEpisodeName(eps)))
@@ -149,6 +202,24 @@ func main() {
 	}
 	pods["filip & fredrik"] = podcast
 	
+	aosParser := RssPod("Alex & Sigge")
+	aosPod := &Pod {
+		url: "http://alexosigge.libsyn.com/rss",
+		lastUpdate: time.Now(),
+		parser: aosParser,
+	}
+
+	pods["alex & sigge"]= aosPod
+
+	ftmParser := RssPod("F This Movie!")
+	ftmPod := &Pod {
+		url: "http://feeds.feedburner.com/fthismovie?format=xml",
+		lastUpdate: time.Now(),
+		parser: ftmParser,
+	}
+
+	pods["f this movie!"] = ftmPod
+
 	go sched()
 	http.HandleFunc("/", IndexHandler)
 	http.HandleFunc("/forceupdate", func(w http.ResponseWriter, r *http.Request) {
