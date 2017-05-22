@@ -220,6 +220,15 @@ func main() {
 
 	pods["f this movie!"] = ftmPod
 
+	gotimeParser := RssPod("Go Time")
+	gotimePod := &Pod {
+		url: "https://changelog.com/gotime/feed",
+		lastUpdate: time.Now(),
+		parser: gotimeParser,
+	}
+
+	pods["go time"] = gotimePod
+
 	go sched()
 	http.HandleFunc("/", IndexHandler)
 	http.HandleFunc("/forceupdate", func(w http.ResponseWriter, r *http.Request) {
@@ -282,20 +291,31 @@ var indextemplate string = `
 				* {
 					font-family: Terminal, Consolas, Lucida Console;
 				}
+				body {
+					display: flex;
+					flex-wrap: wrap;
+					margin: 1em auto;
+					max-width: 1200px;
+					color: #444;
+					font-size: 18px;
+					line-height: 1.6;
+				} 
 			</style>
 		</head>
 		<body>
 		{{ range . }}
-			<h3><strong>{{ .Name }}</strong></h3>
-			<i>{{ .LastUpdate }}</i><br />
-			<ul>
-			{{ range .Episodes }}
-				<li><a href="{{ .URL }}" target="_blank">{{ .Title }}</a></li>
-			{{ end }}
-			</ul>
+			<div style="width: 600px">
+				<h3><strong>{{ .Name }}</strong></h3>
+				<i>{{ .LastUpdate }}</i><br />
+				<ul>
+				{{ range .Episodes }}
+					<li><a href="{{ .URL }}" target="_blank">{{ .Title }}</a></li>
+				{{ end }}	
+				</ul>
+			</div>
 		{{ end }}
-		<br />
-		</body>
+		
+	 </body>
 	</html>`
 
 
