@@ -1,7 +1,6 @@
 package main
 
 import (
-	"container/list"
 	"encoding/xml"
 	"flag"
 	"fmt"
@@ -17,58 +16,6 @@ import (
 )
 
 var port = flag.String("port", ":6363", "port to listen to :XXXX")
-var applog = newlogger()
-
-type queue struct {
-	s sync.Mutex
-	l *list.List
-	m int
-}
-
-func (q *queue) enqueue(s string) {
-	q.s.Lock()
-	defer q.s.Unlock()
-	for q.l.Len() > q.m {
-		q.dequeue()
-	}
-	q.l.PushBack(s)
-}
-
-func (q *queue) dequeue() string {
-	q.s.Lock()
-	defer q.s.Unlock()
-	v := q.l.Front()
-	q.l.Remove(v)
-	return v.Value.(string)
-}
-
-func (q *queue) loop(f func(string)) {
-	q.s.Lock()
-	defer q.s.Unlock()
-	for e := q.l.Back(); e != nil; e = e.Prev() {
-		f(e.Value.(string))
-	}
-}
-
-type logger struct {
-	queue *queue
-}
-
-func (l *logger) logf(f string, v ...interface{}) {
-	s := fmt.Sprintf(f, v...)
-	log.Print(s)
-	// l.queue.enqueue(s)
-}
-
-func newlogger() *logger {
-	al := &logger{
-		queue: &queue{
-			l: list.New(),
-			m: 50,
-		},
-	}
-	return al
-}
 
 type RssFeed struct {
 	XMLName xml.Name   `xml:"rss"`
@@ -106,21 +53,21 @@ type RssParser string
 func (rp RssParser) URLs() []Episode {
 	res, err := http.Get(string(rp))
 	if err != nil {
-		applog.logf("%s", err.Error())
+		log.Printf("%s", err.Error())
 		return nil
 	}
 	defer res.Body.Close()
 
 	bs, err := ioutil.ReadAll(res.Body)
 	if err != nil {
-		applog.logf("%s", err.Error())
+		log.Printf("%s", err.Error())
 		return nil
 	}
 
 	rss := RssFeed{}
 	err = xml.Unmarshal(bs, &rss)
 	if err != nil {
-		applog.logf("%s", err.Error())
+		log.Printf("%s", err.Error())
 		return nil
 	}
 
@@ -159,11 +106,11 @@ var pods = make(map[string]*Pod)
 
 func update() {
 	m.Lock()
-	applog.logf("pods: Updating podcasts")
+	log.Print("pods: Updating podcasts")
 	for _, pod := range pods {
-		applog.logf("pods:\t%s... ", pod.name)
+		log.Printf("pods:\t%s... ", pod.name)
 		pod.Update()
-		applog.logf("Done!")
+		log.Print("Done!")
 	}
 	m.Unlock()
 }
@@ -223,18 +170,6 @@ func main() {
 		update()
 		writeflush("Done")
 	})
-	http.HandleFunc("/logs", func(w http.ResponseWriter, r *http.Request) {
-		writeflush := func(s string) {
-			fmt.Fprintln(w, s)
-			if f, ok := w.(http.Flusher); ok {
-				f.Flush()
-			}
-		}
-		io.WriteString(w, strings.Repeat(" ", 1025))
-		applog.queue.loop(func(s string) {
-			writeflush(s)
-		})
-	})
 	http.ListenAndServe(*port, nil)
 }
 
@@ -242,7 +177,7 @@ func index(w http.ResponseWriter, r *http.Request) {
 	t, err := template.New("index").Parse(indextemplate)
 	if err != nil {
 		fmt.Fprint(w, err.Error())
-		applog.logf(err.Error())
+		log.Print(err.Error())
 		return
 	}
 	var data []TemplatePod
