@@ -201,6 +201,14 @@ func main() {
 
 	pods["kodsnack"] = kodsnackPod
 
+	gotimePod := &Pod{
+		name:       "Go Time",
+		lastUpdate: time.Now(),
+		parser:     RssParser("https://changelog.com/gotime/feed"),
+	}
+
+	pods["go time"] = gotimePod
+
 	go sched()
 	http.HandleFunc("/", index)
 	http.HandleFunc("/forceupdate", func(w http.ResponseWriter, r *http.Request) {
