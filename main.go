@@ -1,24 +1,74 @@
 package main
 
 import (
+	"container/list"
 	"encoding/xml"
 	"flag"
 	"fmt"
 	"html/template"
 	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"sort"
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/PuerkitoBio/goquery"
 )
 
 var port = flag.String("port", ":6363", "port to listen to :XXXX")
-var p = fmt.Printf
-var fp = fmt.Fprint
+var applog = newlogger()
+
+type queue struct {
+	s sync.Mutex
+	l *list.List
+	m int
+}
+
+func (q *queue) enqueue(s string) {
+	q.s.Lock()
+	defer q.s.Unlock()
+	for q.l.Len() > q.m {
+		q.dequeue()
+	}
+	q.l.PushBack(s)
+}
+
+func (q *queue) dequeue() string {
+	q.s.Lock()
+	defer q.s.Unlock()
+	v := q.l.Front()
+	q.l.Remove(v)
+	return v.Value.(string)
+}
+
+func (q *queue) loop(f func(string)) {
+	q.s.Lock()
+	defer q.s.Unlock()
+	for e := q.l.Back(); e != nil; e = e.Prev() {
+		f(e.Value.(string))
+	}
+}
+
+type logger struct {
+	queue *queue
+}
+
+func (l *logger) logf(f string, v ...interface{}) {
+	s := fmt.Sprintf(f, v...)
+	log.Print(s)
+	// l.queue.enqueue(s)
+}
+
+func newlogger() *logger {
+	al := &logger{
+		queue: &queue{
+			l: list.New(),
+			m: 50,
+		},
+	}
+	return al
+}
 
 type RssFeed struct {
 	XMLName xml.Name   `xml:"rss"`
@@ -37,14 +87,8 @@ type RssItem struct {
 }
 
 type RssEnclosure struct {
-	Url string `xml:"url,attr"`
+	URL string `xml:"url,attr"`
 }
-
-type byEpisodeName []Episode
-
-func (b byEpisodeName) Len() int           { return len(b) }
-func (b byEpisodeName) Swap(i, j int)      { b[i], b[j] = b[j], b[i] }
-func (b byEpisodeName) Less(i, j int) bool { return b[i].name < b[j].name }
 
 type Episode struct {
 	name     string
@@ -53,30 +97,30 @@ type Episode struct {
 }
 
 type PodParser interface {
-	FindPodcastURLs(url string) []Episode
+	URLs() []Episode
 }
 
-type RssPod string
+type RssParser string
 
-// FindPodcastURLs extracts media-links from rss
-func (rp RssPod) FindPodcastURLs(url string) []Episode {
-	res, err := http.Get(url)
+// URLs extracts media-links from rss
+func (rp RssParser) URLs() []Episode {
+	res, err := http.Get(string(rp))
 	if err != nil {
-		p("%s\n", err.Error())
+		applog.logf("%s", err.Error())
 		return nil
 	}
 	defer res.Body.Close()
 
 	bs, err := ioutil.ReadAll(res.Body)
 	if err != nil {
-		fmt.Println(err.Error())
+		applog.logf("%s", err.Error())
 		return nil
 	}
 
 	rss := RssFeed{}
 	err = xml.Unmarshal(bs, &rss)
 	if err != nil {
-		p(err.Error())
+		applog.logf("%s", err.Error())
 		return nil
 	}
 
@@ -88,27 +132,25 @@ func (rp RssPod) FindPodcastURLs(url string) []Episode {
 	for i := 0; i < len(eps); i++ {
 		eps[i] = Episode{rss.Channel.Items[i].Title,
 			rss.Channel.Items[i].Subtitle,
-			rss.Channel.Items[i].Enclosure.Url}
+			rss.Channel.Items[i].Enclosure.URL}
 	}
 	return eps
 }
 
 type Pod struct {
-	url        string
+	name       string
 	parser     PodParser
 	lastUpdate time.Time
 	eps        []Episode
 }
 
-func (p *Pod) getPodcastArchive() (*goquery.Document, error) {
-	return goquery.NewDocument(p.url)
-}
-
-func (p *Pod) Do() {
-	eps := p.parser.FindPodcastURLs(p.url)
+func (p *Pod) Update() {
+	eps := p.parser.URLs()
 
 	p.lastUpdate = time.Now()
-	sort.Sort(sort.Reverse(byEpisodeName(eps)))
+	sort.Slice(eps, func(i, j int) bool {
+		return eps[i].name > eps[j].name
+	})
 	p.eps = eps
 }
 
@@ -117,11 +159,11 @@ var pods = make(map[string]*Pod)
 
 func update() {
 	m.Lock()
-	p("pods: Updating podcasts\n")
-	for name, pod := range pods {
-		p("pods:\t%s... ", name)
-		pod.Do()
-		p("Done!\n")
+	applog.logf("pods: Updating podcasts")
+	for _, pod := range pods {
+		applog.logf("pods:\t%s... ", pod.name)
+		pod.Update()
+		applog.logf("Done!")
 	}
 	m.Unlock()
 }
@@ -136,46 +178,25 @@ func sched() {
 
 func main() {
 	flag.Parse()
-	parser := RssPod("Filip & Fredrik")
 	podcast := &Pod{
-		url:        "https://rss.acast.com/filipandfredrik",
+		name:       "Filip & Fredrik",
 		lastUpdate: time.Now(),
-		parser:     parser,
+		parser:     RssParser("https://feed.pod.space/filipandfredrik"),
 	}
 	pods["filip & fredrik"] = podcast
 
-	aosParser := RssPod("Alex & Sigge")
 	aosPod := &Pod{
-		url:        "http://alexosigge.libsyn.com/rss",
+		name:       "Alex & Sigge",
 		lastUpdate: time.Now(),
-		parser:     aosParser,
+		parser:     RssParser("http://alexosigge.libsyn.com/rss"),
 	}
 
 	pods["alex & sigge"] = aosPod
 
-	ftmParser := RssPod("F This Movie!")
-	ftmPod := &Pod{
-		url:        "http://feeds.feedburner.com/fthismovie?format=xml",
-		lastUpdate: time.Now(),
-		parser:     ftmParser,
-	}
-
-	pods["f this movie!"] = ftmPod
-
-	gotimeParser := RssPod("Go Time")
-	gotimePod := &Pod{
-		url:        "https://changelog.com/gotime/feed",
-		lastUpdate: time.Now(),
-		parser:     gotimeParser,
-	}
-
-	pods["go time"] = gotimePod
-
-	kodsnackParser := RssPod("Kodsnack")
 	kodsnackPod := &Pod{
-		url:        "https://kodsnack.libsyn.com/rss",
+		parser:     RssParser("https://kodsnack.libsyn.com/rss"),
 		lastUpdate: time.Now(),
-		parser:     kodsnackParser,
+		name:       "Kodsnack",
 	}
 
 	pods["kodsnack"] = kodsnackPod
@@ -184,7 +205,7 @@ func main() {
 	http.HandleFunc("/", index)
 	http.HandleFunc("/forceupdate", func(w http.ResponseWriter, r *http.Request) {
 		writeflush := func(s string) {
-			fp(w, s)
+			fmt.Fprint(w, s)
 			if f, ok := w.(http.Flusher); ok {
 				f.Flush()
 			}
@@ -194,14 +215,26 @@ func main() {
 		update()
 		writeflush("Done")
 	})
+	http.HandleFunc("/logs", func(w http.ResponseWriter, r *http.Request) {
+		writeflush := func(s string) {
+			fmt.Fprintln(w, s)
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+		}
+		io.WriteString(w, strings.Repeat(" ", 1025))
+		applog.queue.loop(func(s string) {
+			writeflush(s)
+		})
+	})
 	http.ListenAndServe(*port, nil)
 }
 
 func index(w http.ResponseWriter, r *http.Request) {
 	t, err := template.New("index").Parse(indextemplate)
 	if err != nil {
-		fp(w, err.Error())
-		p(err.Error())
+		fmt.Fprint(w, err.Error())
+		applog.logf(err.Error())
 		return
 	}
 	var data []TemplatePod
@@ -219,7 +252,7 @@ func index(w http.ResponseWriter, r *http.Request) {
 	m.Unlock()
 	err = t.Execute(w, data)
 	if err != nil {
-		p(err.Error())
+		log.Print(err.Error())
 	}
 }
 
