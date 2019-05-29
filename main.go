@@ -17,36 +17,42 @@ import (
 
 var port = flag.String("port", ":6363", "port to listen to :XXXX")
 
+// RssFeed is the root of the feed
 type RssFeed struct {
 	XMLName xml.Name   `xml:"rss"`
 	Channel RssChannel `xml:"channel"`
 }
 
+// RssChannel is a channel
 type RssChannel struct {
 	Title string    `xml:"title"`
 	Items []RssItem `xml:"item"`
 }
 
+// RssItem represents an individual item in the channel
 type RssItem struct {
 	Title     string       `xml:"title"`
 	Enclosure RssEnclosure `xml:"enclosure"`
 	Subtitle  string       `xml:"itunes:subtitle"`
 }
 
+// RssEnclosure is the metadata + url of the item
 type RssEnclosure struct {
 	URL string `xml:"url,attr"`
 }
 
+// Episode is used in the template
 type Episode struct {
 	name     string
 	subtitle string
 	url      string
 }
 
-type PodParser interface {
+type parser interface {
 	URLs() []Episode
 }
 
+// RssParser implements the parser interface and the  string is the url for the feed
 type RssParser string
 
 // URLs extracts media-links from rss
@@ -84,13 +90,15 @@ func (rp RssParser) URLs() []Episode {
 	return eps
 }
 
+// Pod keeps track and updates the feed
 type Pod struct {
 	name       string
-	parser     PodParser
+	parser     parser
 	lastUpdate time.Time
 	eps        []Episode
 }
 
+// Update the feed items
 func (p *Pod) Update() {
 	eps := p.parser.URLs()
 
@@ -184,13 +192,13 @@ func index(w http.ResponseWriter, r *http.Request) {
 
 	m.Lock()
 	for name, pod := range pods {
-		tpod := TemplatePod{Name: name,
+		tp := TemplatePod{Name: name,
 			LastUpdate: pod.lastUpdate.Format("2006-01-02 15:04"),
 			Episodes:   make([]TemplateEpisode, len(pod.eps))}
 		for i := range pod.eps {
-			tpod.Episodes[i] = TemplateEpisode{Title: pod.eps[i].name, URL: pod.eps[i].url}
+			tp.Episodes[i] = TemplateEpisode{Title: pod.eps[i].name, URL: pod.eps[i].url}
 		}
-		data = append(data, tpod)
+		data = append(data, tp)
 	}
 	m.Unlock()
 	err = t.Execute(w, data)
@@ -199,11 +207,13 @@ func index(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// TemplateEpisode is for the html template
 type TemplateEpisode struct {
 	Title string
 	URL   string
 }
 
+// TemplatePod is for the html template
 type TemplatePod struct {
 	Name       string
 	LastUpdate string
