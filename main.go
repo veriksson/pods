@@ -138,6 +138,7 @@ func main() {
 		lastUpdate: time.Now(),
 		parser:     RssParser("https://feed.pod.space/filipandfredrik"),
 	}
+
 	pods["filip & fredrik"] = podcast
 
 	aosPod := &Pod{
@@ -163,6 +164,22 @@ func main() {
 	}
 
 	pods["go time"] = gotimePod
+
+	seradioPod := &Pod{
+		name:       "SE Radio",
+		lastUpdate: time.Now(),
+		parser:     RssParser("https://www.se-radio.net/feed/podcast/"),
+	}
+
+	pods["se radio"] = seradioPod
+
+	bikeshedFM := &Pod{
+		name:       "The Bike Shed",
+		lastUpdate: time.Now(),
+		parser:     RssParser("https://rss.simplecast.com/podcasts/282/rss"),
+	}
+
+	pods["bikeshed"] = bikeshedFM
 
 	go sched()
 	http.HandleFunc("/", index)
