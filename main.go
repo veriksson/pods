@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"encoding/xml"
 	"flag"
 	"fmt"
@@ -195,16 +196,16 @@ func main() {
 		update()
 		writeflush("Done")
 	})
+	http.HandleFunc("/feed.json", func(w http.ResponseWriter, r *http.Request) {
+		data := GetPods()
+		j, _ := json.Marshal(data)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(j)
+	})
 	http.ListenAndServe(*port, nil)
 }
 
-func index(w http.ResponseWriter, r *http.Request) {
-	t, err := template.New("index").Parse(indextemplate)
-	if err != nil {
-		fmt.Fprint(w, err.Error())
-		log.Print(err.Error())
-		return
-	}
+func GetPods() []TemplatePod {
 	var data []TemplatePod
 
 	m.Lock()
@@ -218,6 +219,17 @@ func index(w http.ResponseWriter, r *http.Request) {
 		data = append(data, tp)
 	}
 	m.Unlock()
+	return data
+}
+
+func index(w http.ResponseWriter, r *http.Request) {
+	t, err := template.New("index").Parse(indextemplate)
+	if err != nil {
+		fmt.Fprint(w, err.Error())
+		log.Print(err.Error())
+		return
+	}
+	data := GetPods()
 	err = t.Execute(w, data)
 	if err != nil {
 		log.Print(err.Error())
