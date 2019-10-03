@@ -35,6 +35,11 @@ type RssItem struct {
 	Title     string       `xml:"title"`
 	Enclosure RssEnclosure `xml:"enclosure"`
 	Subtitle  string       `xml:"itunes:subtitle"`
+	PubDate   RssTime      `xml:"pubDate"`
+}
+
+type RssTime struct {
+	time.Time
 }
 
 // RssEnclosure is the metadata + url of the item
@@ -47,10 +52,19 @@ type Episode struct {
 	name     string
 	subtitle string
 	url      string
+	pubDate  time.Time
 }
 
 type parser interface {
 	URLs() []Episode
+}
+
+func (rt *RssTime) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	var v string
+	d.DecodeElement(&v, &start)
+	parsed, _ := time.Parse(time.RFC1123Z, v)
+	*rt = RssTime{parsed}
+	return nil
 }
 
 // RssParser implements the parser interface and the  string is the url for the feed
@@ -86,7 +100,8 @@ func (rp RssParser) URLs() []Episode {
 	for i := 0; i < len(eps); i++ {
 		eps[i] = Episode{rss.Channel.Items[i].Title,
 			rss.Channel.Items[i].Subtitle,
-			rss.Channel.Items[i].Enclosure.URL}
+			rss.Channel.Items[i].Enclosure.URL,
+			rss.Channel.Items[i].PubDate.Time}
 	}
 	return eps
 }
@@ -96,6 +111,7 @@ type Pod struct {
 	name       string
 	parser     parser
 	lastUpdate time.Time
+	image      string
 	eps        []Episode
 }
 
@@ -105,7 +121,7 @@ func (p *Pod) Update() {
 
 	p.lastUpdate = time.Now()
 	sort.Slice(eps, func(i, j int) bool {
-		return eps[i].name > eps[j].name
+		return eps[i].pubDate.After(eps[j].pubDate)
 	})
 	p.eps = eps
 }
