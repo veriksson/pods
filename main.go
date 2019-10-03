@@ -62,7 +62,10 @@ type parser interface {
 func (rt *RssTime) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	var v string
 	d.DecodeElement(&v, &start)
-	parsed, _ := time.Parse(time.RFC1123Z, v)
+	parsed, err := time.Parse("Mon, _2 Jan 2006 15:04:05 -0700", v)
+	if err != nil {
+		return err
+	}
 	*rt = RssTime{parsed}
 	return nil
 }
