@@ -201,6 +201,22 @@ func main() {
 
 	pods["bikeshed"] = bikeshedFM
 
+	onTheMetal := &Pod{
+		name:       "On The Metal",
+		lastUpdate: time.Now(),
+		parser:     RssParser("https://feeds.transistor.fm/on-the-metal-0294649e-ec23-4eab-975a-9eb13fd94e06"),
+	}
+
+	pods["on the metal"] = onTheMetal
+
+	signalsAndThreads := &Pod{
+		name:       "Signals and Threads",
+		lastUpdate: time.Now(),
+		parser:     RssParser("https://feeds.simplecast.com/L9810DOa"),
+	}
+
+	pods["signals and threads"] = signalsAndThreads
+
 	go sched()
 	http.HandleFunc("/", index)
 	http.HandleFunc("/forceupdate", func(w http.ResponseWriter, r *http.Request) {
